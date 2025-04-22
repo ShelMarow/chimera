@@ -42,40 +42,27 @@ namespace Chimera {
 
     // 检测拉丁乱码并尝试还原为中文
     static std::string try_fix_garbled_utf8(const std::string& text) {
-    // 检查高位字符比例
-    int suspicious_count = 0;
-    for (char c : text) {
-        if ((unsigned char)c >= 0xC0) {
-            suspicious_count++;
+        // 检查字符串中是否有大量连续的不可见字符或高位字符，初步判断是否是乱码
+        int suspicious_count = 0;
+        for (char c : text) {
+            if ((unsigned char)c >= 0xC0) { // 高位字符
+                suspicious_count++;
+            }
         }
-    }
-    if (suspicious_count * 2 < (int)text.length()) {
-        return text; // 看起来不是乱码
-    }
-
-    // 尝试从本地编码还原
-    wchar_t wbuffer[1024] = {};
-    MultiByteToWideChar(CP_ACP, 0, text.c_str(), -1, wbuffer, 1024);
-
-    // 特别加一层判断，如果wbuffer里面都是中文，就用它
-    bool has_chinese = false;
-    for (wchar_t wc : wbuffer) {
-        if (wc == 0) break;
-        if (wc >= 0x4E00 && wc <= 0x9FA5) { // 中文汉字区间
-            has_chinese = true;
-            break;
+        if (suspicious_count * 2 < (int)text.length()) {
+            // 如果高位字符数量不足一半，认为不是乱码
+            return text;
         }
-    }
-
-    if (has_chinese) {
+    
+        // 尝试从本地系统默认编码转换回 UTF-8
+        wchar_t wbuffer[1024] = {};
+        MultiByteToWideChar(CP_ACP, 0, text.c_str(), -1, wbuffer, 1024);
+    
         char utf8buffer[1024] = {};
         WideCharToMultiByte(CP_UTF8, 0, wbuffer, -1, utf8buffer, 1024, nullptr, nullptr);
+    
         return std::string(utf8buffer);
     }
-
-    // fallback，原样返回
-    return text;
-}
     
     static std::wstring u8_to_u16(const char *str) {
         wchar_t strw[1024] = {};
@@ -250,7 +237,7 @@ namespace Chimera {
     static bool block_ips = false;
 
     #define INPUT_BUFFER_SIZE 64
-    static std::string chat_input_buffer;
+    static std::wstring chat_input_buffer;
     static std::size_t chat_input_cursor = 0;
     static int chat_input_channel = 0;
     static bool chat_input_open = false;
@@ -383,29 +370,23 @@ namespace Chimera {
             apply_text_quake_colors(prompt_prefix, chat_input_x, adjusted_y, chat_input_w, line_height, chat_input_color, chat_input_font, chat_input_anchor);
 
             // Draw the entered text
-            auto u16_chat_buffer = u8_to_u16(chat_input_buffer.c_str());
-            apply_text_quake_colors(u16_chat_buffer, chat_input_x + x_offset_text_buffer, adjusted_y, chat_input_w, line_height, chat_input_color, chat_input_font, chat_input_anchor);
+            apply_text_quake_colors(chat_input_buffer, chat_input_x + x_offset_text_buffer, adjusted_y, chat_input_w, line_height, chat_input_color, chat_input_font, chat_input_anchor);
 
             // Figure out where and what color to draw the cursor
-            const static std::regex color_code_re = std::regex("\\^(?:\\^|(.))");
+            const static std::wregex color_code_re(L"\\^(?:\\^|(.))");
+
             auto pre_cursor_text = chat_input_buffer.substr(0, chat_input_cursor);
 
-            // Strip all color codes from text (saving the last-encountered one to use to render the
-            // cursor with) in order to get an accurate length of the text before the cursor.
-            std::string cursor_color = "^;";
             unsigned int pos = 0;
-            auto colorless_pre_cursor_text = std::string();
+            auto colorless_pre_cursor_text = std::wstring();
             colorless_pre_cursor_text.reserve(pre_cursor_text.length());
-            for(std::sregex_iterator i = std::sregex_iterator(pre_cursor_text.begin(), pre_cursor_text.end(), color_code_re); i != std::sregex_iterator(); i++){
+            for(std::wsregex_iterator i = std::wsregex_iterator(pre_cursor_text.begin(), pre_cursor_text.end(), color_code_re); i != std::wsregex_iterator(); i++) {
                 auto prev_len = i->position() - pos;
                 colorless_pre_cursor_text.append(pre_cursor_text, pos, prev_len);
-                if (i->length(1) > 0){
-                    // color code - remember it but don't add it to the string
+                if (i->length(1) > 0) {
                     cursor_color = i->str();
-                }
-                else{
-                    // matched a "^^" - add a literal "^"
-                    colorless_pre_cursor_text.append("^");
+                } else {
+                    colorless_pre_cursor_text.append(L"^");
                 }
                 pos += prev_len + i->length();
             }
@@ -811,7 +792,8 @@ namespace Chimera {
                 // Enter
                 else if(key_code == 0x38) {
                     if(num_bytes > 0 && server_type() != ServerType::SERVER_NONE){
-                        chat_out(chat_input_channel, chat_input_buffer.c_str());
+                        std::string u8_message = u16_to_u8(chat_input_buffer.c_str());
+                        chat_out(chat_input_channel, u8_message.c_str());
                     }
                     chat_input_open = false;
                     chat_open_state_changed = clock::now();
@@ -850,21 +832,17 @@ namespace Chimera {
                 }
                 if (!inserted_emoji) {
                     // Insert the character normally
-                    if(character >= 0x80) {
-                        // Not enough space
-                        if(num_bytes >= INPUT_BUFFER_SIZE - 2) {
-                            return;
+                    if (character >= 0x80) {
+                        // 高位字符，可能是输入法输入的UTF-8，需要转成宽字符
+                        char utf8buf[2] = { (char)character, 0 };
+                        wchar_t wbuf[2] = { 0 };
+                        if (MultiByteToWideChar(CP_UTF8, 0, utf8buf, -1, wbuf, 2) > 0) {
+                            chat_input_buffer.insert(chat_input_cursor++, 1, wbuf[0]);
                         }
-
-                        // Needs to be converted to UTF-8
-                        chat_input_buffer.insert(chat_input_cursor++, 1, 0xC2 + (character > 0xBF ? 1 : 0));
-                        chat_input_buffer.insert(chat_input_cursor++, 1, 0x80 + (character & 0x3F));
+                    } else {
+                        // 普通ASCII字符
+                        chat_input_buffer.insert(chat_input_cursor++, 1, (wchar_t)character);
                     }
-                    else {
-                        // Can be used as-is
-                        chat_input_buffer.insert(chat_input_cursor++, 1, character);
-                    }
-
                 }
             }
         }
