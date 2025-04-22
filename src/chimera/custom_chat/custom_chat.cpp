@@ -852,7 +852,8 @@ namespace Chimera {
                     utf8_input_fragment.clear();
                 }
             }
-            
+        }
+    }
 
     static void enable_input(bool enabled) noexcept {
         auto &sig = get_chimera().get_signature("key_press_mov_sig");
