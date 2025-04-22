@@ -822,7 +822,8 @@ namespace Chimera {
                             int added_bytes = emoji_len - (name_len + 1);
                             if (num_bytes + added_bytes < INPUT_BUFFER_SIZE){
                                 chat_input_buffer.erase(start, name_len + 1);
-                                chat_input_buffer.insert(start, emoji);
+                                std::wstring emoji_w = u8_to_u16(emoji.c_str());
+                                chat_input_buffer.insert(start, emoji_w);
                                 chat_input_cursor += added_bytes;
                                 inserted_emoji = true;
                             }
