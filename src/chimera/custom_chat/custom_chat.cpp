@@ -377,11 +377,11 @@ namespace Chimera {
                 colorless_pre_cursor_text.append(pre_cursor_text, pos, prev_len);
                 if (i->length(1) > 0){
                     // color code - remember it but don't add it to the string
-                    cursor_color = i->str();
+                    cursor_color = wstring_to_utf8(i->str());
                 }
                 else{
                     // matched a "^^" - add a literal "^"
-                    colorless_pre_cursor_text.append("^");
+                    colorless_pre_cursor_text.append(L"^");
                 }
                 pos += prev_len + i->length();
             }
