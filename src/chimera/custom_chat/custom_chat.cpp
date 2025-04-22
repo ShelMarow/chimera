@@ -45,11 +45,11 @@ namespace Chimera {
         // 检查字符串中是否有大量连续的不可见字符或高位字符，初步判断是否是乱码
         int suspicious_count = 0;
         for (char c : text) {
-            if ((unsigned char)c >= 0xC0) { // 高位字符
+            if (static_cast<unsigned char>(c) >= 0xC0) { // 高位字符
                 suspicious_count++;
             }
         }
-        if (suspicious_count * 2 < (int)text.length()) {
+        if (suspicious_count * 2 < static_cast<int>(text.length())) {
             // 如果高位字符数量不足一半，认为不是乱码
             return text;
         }
@@ -378,6 +378,8 @@ namespace Chimera {
             auto pre_cursor_text = chat_input_buffer.substr(0, chat_input_cursor);
 
             unsigned int pos = 0;
+            std::wstring cursor_color = L"^;";
+
             auto colorless_pre_cursor_text = std::wstring();
             colorless_pre_cursor_text.reserve(pre_cursor_text.length());
             for(std::wsregex_iterator i = std::wsregex_iterator(pre_cursor_text.begin(), pre_cursor_text.end(), color_code_re); i != std::wsregex_iterator(); i++) {
@@ -398,8 +400,8 @@ namespace Chimera {
             }
 
             // get the width of the color-code-less version of the buffer and draw the cursor there
-            long cursor_x = text_pixel_length(u8_to_u16(colorless_pre_cursor_text.c_str()).c_str(), chat_input_font);
-            cursor_color.append("_");
+            long cursor_x = text_pixel_length(colorless_pre_cursor_text.c_str(), font);
+            cursor_color.append(L"_");
             apply_text_quake_colors(u8_to_u16(cursor_color.c_str()), cursor_x + chat_input_x + x_offset_text_buffer, adjusted_y, chat_input_w, line_height, chat_input_color, chat_input_font, chat_input_anchor);
 
             if(show_chat_color_help) {
@@ -622,7 +624,7 @@ namespace Chimera {
             return;
         }
         chat_input_open = true;
-        chat_input_buffer = std::string();
+        chat_input_buffer.clear();
         chat_input_cursor = 0;
         chat_input_channel = channel;
         chat_open_state_changed = clock::now();
@@ -813,7 +815,7 @@ namespace Chimera {
                         auto emoji_name = chat_input_buffer.substr(start + 1, name_len);
                         try {
                             // get the emoji from the name (raises exception if not found)
-                            auto emoji = EMOJI_MAP.at(emoji_name);
+                            auto emoji = EMOJI_MAP.at(u16_to_u8(emoji_name));
 
                             // found an emoji, insert it if there's enough space in the buffer
                             unsigned int emoji_len = emoji.length();
@@ -834,14 +836,14 @@ namespace Chimera {
                     // Insert the character normally
                     if (character >= 0x80) {
                         // 高位字符，可能是输入法输入的UTF-8，需要转成宽字符
-                        char utf8buf[2] = { (char)character, 0 };
+                        char utf8buf[2] = { static_cast<char>(character), 0 };
                         wchar_t wbuf[2] = { 0 };
                         if (MultiByteToWideChar(CP_UTF8, 0, utf8buf, -1, wbuf, 2) > 0) {
                             chat_input_buffer.insert(chat_input_cursor++, 1, wbuf[0]);
                         }
                     } else {
                         // 普通ASCII字符
-                        chat_input_buffer.insert(chat_input_cursor++, 1, (wchar_t)character);
+                        chat_input_buffer.insert(chat_input_cursor++, 1, static_cast<wchar_t>(character));
                     }
                 }
             }
