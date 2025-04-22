@@ -806,7 +806,6 @@ namespace Chimera {
                     enable_input(true);
                 }
             }
-            // typed a non-control character and there's room left in the buffer
             else if (!std::iscntrl(character) && chat_input_buffer.length() < INPUT_BUFFER_SIZE - 1) {
                 static std::string utf8_input_fragment;
                 bool inserted_emoji = false;
@@ -849,14 +848,11 @@ namespace Chimera {
                         chat_input_buffer.insert(chat_input_cursor++, 1, wbuffer[0]);
                     }
             
+                    // 清空fragment，表示已成功插入
                     utf8_input_fragment.clear();
                 }
-                // else {
-                //    // 未解码成功，说明还在接收UTF-8后续字节，继续等待，不清空utf8_input_fragment
-                // }
             }
-        }
-    }
+            
 
     static void enable_input(bool enabled) noexcept {
         auto &sig = get_chimera().get_signature("key_press_mov_sig");
