@@ -72,7 +72,6 @@ include("src/chimera/chimera.cmake")
 #
 # This loads chimera.dll and anything in mods/
 include("src/monolith/monolith.cmake")
-target_link_libraries(monolith imm32)
 # Map Downloader
 #
 # We need this to download maps from the HAC2 / HaloNet repo and other map servers
