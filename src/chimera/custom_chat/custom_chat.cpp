@@ -806,52 +806,62 @@ namespace Chimera {
                     enable_input(true);
                 }
             }
-            else if (!std::iscntrl(character) && chat_input_buffer.length() < INPUT_BUFFER_SIZE - 1) {
-                static std::string utf8_input_fragment;
-                bool inserted_emoji = false;
-            
-                // 收集UTF-8字节
-                utf8_input_fragment.push_back(static_cast<char>(character));
-            
-                // 尝试把缓存的UTF8片段转成宽字符
-                wchar_t wbuffer[2] = { 0 };
-                if (MultiByteToWideChar(CP_UTF8, 0, utf8_input_fragment.c_str(), -1, wbuffer, 2) > 0) {
-                    // 成功解码，说明缓存够了
-                    // emoji检测需要在成功组装出字符后再做
-                    if (wbuffer[0] == L':' && chat_input_cursor >= 2) {
-                        auto start = chat_input_buffer.rfind(L':', chat_input_cursor - 1);
-                        if (start != std::wstring::npos && chat_input_cursor - start > 1) {
-                            unsigned int name_len = chat_input_cursor - start - 1;
-                            auto emoji_name = chat_input_buffer.substr(start + 1, name_len);
-                            try {
-                                // get the emoji from the name (raises exception if not found)
-                                auto emoji = EMOJI_MAP.at(u16_to_u8(emoji_name.c_str()));
-            
-                                // found an emoji, insert it if there's enough space in the buffer
-                                unsigned int emoji_len = emoji.length();
-                                int added_bytes = emoji_len - (name_len + 1);
-                                if (chat_input_buffer.length() + added_bytes < INPUT_BUFFER_SIZE) {
-                                    chat_input_buffer.erase(start, name_len + 1);
-                                    std::wstring emoji_w = u8_to_u16(emoji.c_str());
-                                    chat_input_buffer.insert(start, emoji_w);
-                                    chat_input_cursor = start + emoji_w.length();
-                                    inserted_emoji = true;
-                                }
-                            } catch (const std::out_of_range& oor) {
-                                // no match, fallback to normal character insertion
-                            }
-                        }
+            // typed a non-control character and there's room left in the buffer
+else if (!std::iscntrl(character) && chat_input_buffer.length() < INPUT_BUFFER_SIZE - 1) {
+    static std::string utf8_input_fragment;
+    bool inserted_emoji = false;
+
+    // 收集UTF-8字节
+    utf8_input_fragment.push_back(static_cast<char>(character));
+
+    // 打印原始UTF-8字符（十六进制）
+    console_output("Raw UTF-8 byte (hex): 0x" + to_hex(character));
+
+    // 尝试把缓存的UTF8片段转成宽字符
+    wchar_t wbuffer[2] = { 0 };
+    if (MultiByteToWideChar(CP_UTF8, 0, utf8_input_fragment.c_str(), -1, wbuffer, 2) > 0) {
+        // 打印转换后的宽字符（wchar_t）
+        console_output("Converted wchar_t: " + to_wstring(wbuffer[0]));
+
+        // 成功解码，说明缓存够了
+        // emoji检测需要在成功组装出字符后再做
+        if (wbuffer[0] == L':' && chat_input_cursor >= 2) {
+            auto start = chat_input_buffer.rfind(L':', chat_input_cursor - 1);
+            if (start != std::wstring::npos && chat_input_cursor - start > 1) {
+                unsigned int name_len = chat_input_cursor - start - 1;
+                auto emoji_name = chat_input_buffer.substr(start + 1, name_len);
+                try {
+                    // get the emoji from the name (raises exception if not found)
+                    auto emoji = EMOJI_MAP.at(u16_to_u8(emoji_name.c_str()));
+
+                    // found an emoji, insert it if there's enough space in the buffer
+                    unsigned int emoji_len = emoji.length();
+                    int added_bytes = emoji_len - (name_len + 1);
+                    if (chat_input_buffer.length() + added_bytes < INPUT_BUFFER_SIZE) {
+                        chat_input_buffer.erase(start, name_len + 1);
+                        std::wstring emoji_w = u8_to_u16(emoji.c_str());
+                        chat_input_buffer.insert(start, emoji_w);
+                        chat_input_cursor = start + emoji_w.length();
+                        inserted_emoji = true;
                     }
-            
-                    if (!inserted_emoji) {
-                        // 插入刚刚拼好的宽字符
-                        chat_input_buffer.insert(chat_input_cursor++, 1, wbuffer[0]);
-                    }
-            
-                    // 清空fragment，表示已成功插入
-                    utf8_input_fragment.clear();
+                } catch (const std::out_of_range& oor) {
+                    // no match, fallback to normal character insertion
                 }
             }
+        }
+
+        if (!inserted_emoji) {
+            // 插入刚刚拼好的宽字符
+            chat_input_buffer.insert(chat_input_cursor++, 1, wbuffer[0]);
+        }
+
+        // 清空fragment，表示已成功插入
+        utf8_input_fragment.clear();
+    } else {
+        console_output("UTF-8 character still incomplete, waiting for more bytes...");
+    }
+}
+            
         }
     }
 
