@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 #include <windows.h>
+#include <imm.h>  // 添加IME支持
 #include <chrono>
 #include <cstring>
 #include <locale>
@@ -24,6 +25,8 @@
 #include "../console/console.hpp"
 #include "../halo_data/chat.hpp"
 #include "emoji_map.hpp"
+
+#pragma comment(lib, "imm32.lib")  // 链接IME库
 
 extern "C" void on_multiplayer_message(const wchar_t *message);
 extern "C" void on_chat_message(const wchar_t *message);
@@ -212,7 +215,7 @@ namespace Chimera {
     static std::size_t chat_message_scroll = 0;
     static bool block_ips = false;
 
-    #define INPUT_BUFFER_SIZE 64
+    #define INPUT_BUFFER_SIZE 256
     static std::string chat_input_buffer;
     static std::size_t chat_input_cursor = 0;
     static int chat_input_channel = 0;
@@ -678,43 +681,47 @@ namespace Chimera {
 
     static void on_chat_input() noexcept {
         struct key_input {
-            std::uint8_t modifier;
+            std::uint8_t modifier; // 0001=shift 0010=ctrl 0100=alt
             std::uint8_t character;
             std::uint8_t key_code;
             std::uint8_t unknown;
-        };
-    
+        }; static_assert(sizeof(key_input) == sizeof(std::uint32_t));
+
         static key_input *input_buffer = nullptr;
         static std::int16_t *input_count = nullptr;
-        
         if(!input_buffer) {
             auto *data = *reinterpret_cast<std::uint8_t **>(get_chimera().get_signature("on_key_press_sig").data() + 10);
             input_buffer = reinterpret_cast<key_input*>(data + 2);
             input_count = reinterpret_cast<std::int16_t*>(data);
         }
-    
+
         if(chat_input_open) {
             const auto& [modifier, character, key_code, input_unknown] = input_buffer[*input_count];
             auto num_bytes = chat_input_buffer.length();
-    
+
             // 处理IME输入（中文等）
             if(character == 0xFF && key_code == 0) {
-                // 这是IME产生的字符
-                HIMC himc = ImmGetContext(GetActiveWindow());
+                // 获取IME上下文
+                HWND hwnd = GetActiveWindow();
+                HIMC himc = ImmGetContext(hwnd);
                 if(himc) {
-                    DWORD size = ImmGetCompositionStringW(himc, GCS_RESULTSTR, NULL, 0);
-                    if(size > 0) {
-                        std::wstring wstr(size / sizeof(wchar_t), L'\0');
-                        ImmGetCompositionStringW(himc, GCS_RESULTSTR, &wstr[0], size);
+                    // 获取IME组合结果长度
+                    LONG len = ImmGetCompositionStringW(himc, GCS_RESULTSTR, NULL, 0);
+                    if(len > 0) {
+                        // 分配缓冲区并获取结果
+                        std::vector<wchar_t> wbuf(len / sizeof(wchar_t) + 1);
+                        ImmGetCompositionStringW(himc, GCS_RESULTSTR, &wbuf[0], len);
                         
-                        // 转换为UTF-8并插入缓冲区
-                        std::string utf8 = u16_to_u8(wstr.c_str());
-                        if(num_bytes + utf8.length() < INPUT_BUFFER_SIZE) {
-                            chat_input_buffer.insert(chat_input_cursor, utf8);
-                            chat_input_cursor += utf8.length();
+                        // 转换为UTF-8
+                        std::string utf8_str = u16_to_u8(&wbuf[0]);
+                        
+                        // 检查缓冲区空间是否足够
+                        if(num_bytes + utf8_str.length() < INPUT_BUFFER_SIZE) {
+                            chat_input_buffer.insert(chat_input_cursor, utf8_str);
+                            chat_input_cursor += utf8_str.length();
                         }
                     }
-                    ImmReleaseContext(GetActiveWindow(), himc);
+                    ImmReleaseContext(hwnd, himc);
                 }
                 return;
             }
