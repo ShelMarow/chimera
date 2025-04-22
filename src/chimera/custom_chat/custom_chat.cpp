@@ -42,27 +42,40 @@ namespace Chimera {
 
     // 检测拉丁乱码并尝试还原为中文
     static std::string try_fix_garbled_utf8(const std::string& text) {
-        // 检查字符串中是否有大量连续的不可见字符或高位字符，初步判断是否是乱码
-        int suspicious_count = 0;
-        for (char c : text) {
-            if ((unsigned char)c >= 0xC0) { // 高位字符
-                suspicious_count++;
-            }
+    // 检查高位字符比例
+    int suspicious_count = 0;
+    for (char c : text) {
+        if ((unsigned char)c >= 0xC0) {
+            suspicious_count++;
         }
-        if (suspicious_count * 2 < (int)text.length()) {
-            // 如果高位字符数量不足一半，认为不是乱码
-            return text;
+    }
+    if (suspicious_count * 2 < (int)text.length()) {
+        return text; // 看起来不是乱码
+    }
+
+    // 尝试从本地编码还原
+    wchar_t wbuffer[1024] = {};
+    MultiByteToWideChar(CP_ACP, 0, text.c_str(), -1, wbuffer, 1024);
+
+    // 特别加一层判断，如果wbuffer里面都是中文，就用它
+    bool has_chinese = false;
+    for (wchar_t wc : wbuffer) {
+        if (wc == 0) break;
+        if (wc >= 0x4E00 && wc <= 0x9FA5) { // 中文汉字区间
+            has_chinese = true;
+            break;
         }
-    
-        // 尝试从本地系统默认编码转换回 UTF-8
-        wchar_t wbuffer[1024] = {};
-        MultiByteToWideChar(CP_ACP, 0, text.c_str(), -1, wbuffer, 1024);
-    
+    }
+
+    if (has_chinese) {
         char utf8buffer[1024] = {};
         WideCharToMultiByte(CP_UTF8, 0, wbuffer, -1, utf8buffer, 1024, nullptr, nullptr);
-    
         return std::string(utf8buffer);
     }
+
+    // fallback，原样返回
+    return text;
+}
     
     static std::wstring u8_to_u16(const char *str) {
         wchar_t strw[1024] = {};
