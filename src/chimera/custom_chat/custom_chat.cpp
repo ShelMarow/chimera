@@ -1,5 +1,15 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
+// 在文件顶部添加以下内容
+#ifdef __MINGW32__
+#define WINVER 0x0501
+#define _WIN32_WINNT 0x0501
+#endif
+
+#include <windows.h>
+#include <imm.h>  // IME支持
+#include <vector>  // 确保包含vector头文件
+
 #include <windows.h>
 #include <chrono>
 #include <cstring>
@@ -24,8 +34,6 @@
 #include "../console/console.hpp"
 #include "../halo_data/chat.hpp"
 #include "emoji_map.hpp"
-#include <imm.h>
-#pragma comment(lib, "imm32.lib")
 
 extern "C" void on_multiplayer_message(const wchar_t *message);
 extern "C" void on_chat_message(const wchar_t *message);
