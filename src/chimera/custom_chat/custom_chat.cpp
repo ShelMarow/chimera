@@ -231,179 +231,117 @@ namespace Chimera {
     }
 
     static void on_custom_chat_frame() noexcept {
-        auto handle_messages = [](auto array, auto x, auto y, auto w, auto h, auto anchor, bool ignore_age, std::size_t scroll, GenericFont font, float slide_time_length, float time_up, float fade_out_time, float line_height_multiplier) {
-            // Define the font
-            std::uint16_t line_height = font_pixel_height(font) * line_height_multiplier;
-            if(line_height == 0) {
-                line_height = 1;
-            }
+    auto handle_messages = [](auto array, auto x, auto y, auto w, auto h, auto anchor, bool ignore_age, std::size_t scroll, GenericFont font, float slide_time_length, float time_up, float fade_out_time, float line_height_multiplier) {
+        // Define the font
+        std::uint16_t line_height = font_pixel_height(font) * line_height_multiplier;
+        if (line_height == 0) {
+            line_height = 1;
+        }
 
-            // Calculate the offset for the first (bottom) line
-            std::uint16_t y_offset = y + h;
+        // Calculate the offset for the first (bottom) line
+        std::uint16_t y_offset = y + h;
 
-            // Find out how many lines we can have. Either it'll be do to pixel space requirements (most likely) or due to the maximum buffer size
-            std::size_t max_lines = MESSAGE_BUFFER_SIZE - 1;
-            std::size_t max_lines_height = h / line_height;
-            std::size_t max_lines_actual = max_lines;
-            if(max_lines_actual > max_lines_height) {
-                max_lines_actual = max_lines_height;
-            }
+        // Find out how many lines we can have
+        std::size_t max_lines = MESSAGE_BUFFER_SIZE - 1;
+        std::size_t max_lines_height = h / line_height;
+        std::size_t max_lines_actual = max_lines;
+        if (max_lines_actual > max_lines_height) {
+            max_lines_actual = max_lines_height;
+        }
 
-            // Find out if we have a brand new one
-            float first_time_alive = array[0].time_since_creation();
-            std::size_t new_count = 0;
-
-            if(first_time_alive < slide_time_length) {
-                // Find how many are also new
-                new_count = 1;
-                for(std::size_t i = 1; i < max_lines; i++) {
-                    if(array[i].time_since_creation() < slide_time_length) {
-                        new_count++;
-                    }
-                    else {
-                        break;
-                    }
-                }
-            }
-
-            // Figure out how many we're going through
-            std::size_t max_lines_iteration = max_lines_actual + new_count;
-            if(max_lines_iteration > max_lines) {
-                max_lines_iteration = max_lines;
-            }
-
-            if(scroll == 0) {
-                // Increase the y value by how many new lines are coming in multiplied by the slide timing, but only if we're not scrolling
-                y_offset += (new_count * line_height) - (slide_time_length == 0.0F ? 1.0F : first_time_alive / slide_time_length) * (new_count * line_height);
-            }
-
-            for(std::size_t i = scroll; i < max_lines_iteration + scroll; i++) {
-                if(i >= max_lines) {
+        // Find out if we have a brand new one
+        float first_time_alive = array[0].time_since_creation();
+        std::size_t new_count = 0;
+        if (first_time_alive < slide_time_length) {
+            new_count = 1;
+            for (std::size_t i = 1; i < max_lines; i++) {
+                if (array[i].time_since_creation() < slide_time_length) {
+                    new_count++;
+                } else {
                     break;
                 }
-
-                if(!array[i].valid()) {
-                    continue;
-                }
-
-                // Check if this is too old
-                float time_alive = array[i].time_since_creation();
-                if(!ignore_age && time_alive >= time_up) {
-                    continue;
-                }
-
-                // Anyway, make the opacity based on whether it's fading out or in
-                ColorARGB color = array[i].color;
-                if(!ignore_age && time_alive > time_up - fade_out_time) {
-                    color.alpha *= 1.0 - (time_alive - (time_up - fade_out_time)) / fade_out_time;
-                }
-                if(time_alive < slide_time_length) {
-                    color.alpha *= slide_time_length == 0.0F ? 1.0F : time_alive / slide_time_length;
-                }
-
-                // Print the damn thing
-                if(color.alpha > 0.0) {
-			auto u16_chat_buffer = u8_to_u16(chat_input_buffer.c_str());
-			apply_text_quake_colors(u16_chat_buffer, chat_input_x + x_offset_text_buffer, adjusted_y, chat_input_w, line_height, chat_input_color, chat_input_font, chat_input_anchor);
-                }
-
-                y_offset -= line_height;
-            }
-        };
-
-        bool console_is_open = get_console_open();
-
-        if((!console_is_open || !server_message_hide_on_console) && !server_messages_blocked()) {
-            handle_messages(server_messages, server_message_x, server_message_y, server_message_w, chat_input_open ? server_message_h_chat_open : server_message_h, server_message_anchor, chat_input_open, 0, server_message_font, server_slide_time_length, server_time_up, server_fade_out_time, server_message_line_height);
-        }
-        if(!console_is_open || !chat_message_hide_on_console) {
-            handle_messages(chat_messages, chat_message_x, chat_message_y, chat_message_w, chat_input_open ? chat_message_h_chat_open : chat_message_h, chat_message_anchor, chat_input_open, chat_message_scroll, chat_message_font, chat_slide_time_length, chat_time_up, chat_fade_out_time, chat_message_line_height);
-        }
-
-        // Handle chat input
-        if(chat_input_open) {
-            char prompt_prefix[INPUT_BUFFER_SIZE * 2] = {};
-            const char *channel_name;
-            if(chat_input_channel == 0) {
-                channel_name = "chimera_custom_chat_to_all";
-            }
-            else if(chat_input_channel == 1) {
-                channel_name = "chimera_custom_chat_to_team";
-            }
-            else {
-                channel_name = "chimera_custom_chat_to_vehicle";
-            }
-
-            // Define the font for chat input
-            std::uint16_t line_height = font_pixel_height(chat_input_font);
-            std::size_t adjusted_y = chat_input_y + line_height * 2;
-            if(line_height == 0) {
-                line_height = 1;
-            }
-
-            // Draw the prompt
-            std::snprintf(prompt_prefix, sizeof(prompt_prefix), "%s - ", localize(channel_name));
-            auto x_offset_text_buffer = text_pixel_length(prompt_prefix, chat_input_font);
-            apply_text_quake_colors(prompt_prefix, chat_input_x, adjusted_y, chat_input_w, line_height, chat_input_color, chat_input_font, chat_input_anchor);
-
-            // Draw the entered text
-            auto u16_chat_buffer = u8_to_u16(chat_input_buffer.c_str());
-            apply_text_quake_colors(u16_chat_buffer, chat_input_x + x_offset_text_buffer, adjusted_y, chat_input_w, line_height, chat_input_color, chat_input_font, chat_input_anchor);
-
-            // Figure out where and what color to draw the cursor
-            const static std::regex color_code_re = std::regex("\\^(?:\\^|(.))");
-            auto pre_cursor_text = chat_input_buffer.substr(0, chat_input_cursor);
-
-            // Strip all color codes from text (saving the last-encountered one to use to render the
-            // cursor with) in order to get an accurate length of the text before the cursor.
-            std::string cursor_color = "^;";
-            unsigned int pos = 0;
-            auto colorless_pre_cursor_text = std::string();
-            colorless_pre_cursor_text.reserve(pre_cursor_text.length());
-            for(std::sregex_iterator i = std::sregex_iterator(pre_cursor_text.begin(), pre_cursor_text.end(), color_code_re); i != std::sregex_iterator(); i++){
-                auto prev_len = i->position() - pos;
-                colorless_pre_cursor_text.append(pre_cursor_text, pos, prev_len);
-                if (i->length(1) > 0){
-                    // color code - remember it but don't add it to the string
-                    cursor_color = i->str();
-                }
-                else{
-                    // matched a "^^" - add a literal "^"
-                    colorless_pre_cursor_text.append("^");
-                }
-                pos += prev_len + i->length();
-            }
-            colorless_pre_cursor_text.append(pre_cursor_text, pos);
-
-            // if the cursor is the middle of a color code definition then pop off the trailing "^" before computing the length
-            if (chat_input_cursor < chat_input_buffer.length() && pos != pre_cursor_text.length() && colorless_pre_cursor_text.back() == '^' && chat_input_buffer[chat_input_cursor+1] != '^'){
-                colorless_pre_cursor_text.pop_back();
-            }
-
-            // get the width of the color-code-less version of the buffer and draw the cursor there
-            long cursor_x = text_pixel_length(u8_to_u16(colorless_pre_cursor_text.c_str()).c_str(), chat_input_font);
-            cursor_color.append("_");
-            apply_text_quake_colors(u8_to_u16(cursor_color.c_str()), cursor_x + chat_input_x + x_offset_text_buffer, adjusted_y, chat_input_w, line_height, chat_input_color, chat_input_font, chat_input_anchor);
-
-            if(show_chat_color_help) {
-                const char *color_codes = "1234567890\nqwertyuiop QWERTYUIOP\nasdfghjkl ASDFGHJKL\nzxcvbnm ZXCVBNM";
-                std::size_t help_y = adjusted_y + line_height;
-                std::size_t help_x = chat_input_x;
-                for(const char *code = color_codes; *code; code++) {
-                    if(*code == '\n') {
-                        help_y += line_height;
-                        help_x = chat_input_x;
-                    }
-                    else if(*code != ' ') {
-                        char code_text[] = {'^', *code, '^', '^', *code, 0};
-                        apply_text_quake_colors(code_text, help_x, help_y, chat_input_w, line_height, chat_input_color, chat_input_font, chat_input_anchor);
-                    }
-                    char code_space[] = {'^', *code, 0};
-                    help_x += text_pixel_length(code_space, chat_input_font);
-                }
             }
         }
+
+        // Figure out how many we're going through
+        std::size_t max_lines_iteration = max_lines_actual + new_count;
+        if (max_lines_iteration > max_lines) {
+            max_lines_iteration = max_lines;
+        }
+
+        if (scroll == 0) {
+            y_offset += (new_count * line_height) - (slide_time_length == 0.0F ? 1.0F : first_time_alive / slide_time_length) * (new_count * line_height);
+        }
+
+        for (std::size_t i = scroll; i < max_lines_iteration + scroll; i++) {
+            if (i >= max_lines) break;
+            if (!array[i].valid()) continue;
+
+            float time_alive = array[i].time_since_creation();
+            if (!ignore_age && time_alive >= time_up) continue;
+
+            ColorARGB color = array[i].color;
+            if (!ignore_age && time_alive > time_up - fade_out_time) {
+                color.alpha *= 1.0f - (time_alive - (time_up - fade_out_time)) / fade_out_time;
+            }
+            if (time_alive < slide_time_length) {
+                color.alpha *= slide_time_length == 0.0F ? 1.0F : time_alive / slide_time_length;
+            }
+
+            if (color.alpha > 0.0f) {
+                apply_text_quake_colors(std::wstring(array[i].message), x, y_offset, w, line_height, color, font, anchor);
+            }
+
+            y_offset -= line_height;
+        }
+    };
+
+    bool console_is_open = get_console_open();
+
+    if ((!console_is_open || !server_message_hide_on_console) && !server_messages_blocked()) {
+        handle_messages(server_messages, server_message_x, server_message_y, server_message_w,
+                        chat_input_open ? server_message_h_chat_open : server_message_h,
+                        server_message_anchor, chat_input_open, 0, server_message_font,
+                        server_slide_time_length, server_time_up, server_fade_out_time, server_message_line_height);
     }
+    if (!console_is_open || !chat_message_hide_on_console) {
+        handle_messages(chat_messages, chat_message_x, chat_message_y, chat_message_w,
+                        chat_input_open ? chat_message_h_chat_open : chat_message_h,
+                        chat_message_anchor, chat_input_open, chat_message_scroll, chat_message_font,
+                        chat_slide_time_length, chat_time_up, chat_fade_out_time, chat_message_line_height);
+    }
+
+    // 🔥 补丁部分：处理聊天输入
+    if (chat_input_open) {
+        // 定义字体行高
+        std::uint16_t line_height = font_pixel_height(chat_input_font);
+        if (line_height == 0) {
+            line_height = 1;
+        }
+
+        std::size_t adjusted_y = chat_input_y + line_height * 2;
+
+        // 绘制提示前缀
+        char prompt_prefix[INPUT_BUFFER_SIZE * 2] = {};
+        const char *channel_name;
+        if (chat_input_channel == 0) {
+            channel_name = "chimera_custom_chat_to_all";
+        } else if (chat_input_channel == 1) {
+            channel_name = "chimera_custom_chat_to_team";
+        } else {
+            channel_name = "chimera_custom_chat_to_vehicle";
+        }
+        std::snprintf(prompt_prefix, sizeof(prompt_prefix), "%s - ", localize(channel_name));
+        auto x_offset_text_buffer = text_pixel_length(prompt_prefix, chat_input_font);
+
+        apply_text_quake_colors(prompt_prefix, chat_input_x, adjusted_y, chat_input_w, line_height, chat_input_color, chat_input_font, chat_input_anchor);
+
+        // ⚡ 新逻辑：将输入缓冲UTF-8转成UTF-16绘制
+        auto u16_chat_buffer = u8_to_u16(chat_input_buffer.c_str());
+        apply_text_quake_colors(u16_chat_buffer, chat_input_x + x_offset_text_buffer, adjusted_y, chat_input_w, line_height, chat_input_color, chat_input_font, chat_input_anchor);
+    }
+}
+
 
     static void initialize_chat_message(ChatMessage &message, const char *message_text, const ColorARGB &color);
 
