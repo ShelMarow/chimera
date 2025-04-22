@@ -400,9 +400,9 @@ namespace Chimera {
             }
 
             // get the width of the color-code-less version of the buffer and draw the cursor there
-            long cursor_x = text_pixel_length(colorless_pre_cursor_text.c_str(), font);
+            long cursor_x = text_pixel_length(colorless_pre_cursor_text.c_str(), chat_input_font);
             cursor_color.append(L"_");
-            apply_text_quake_colors(u8_to_u16(cursor_color.c_str()), cursor_x + chat_input_x + x_offset_text_buffer, adjusted_y, chat_input_w, line_height, chat_input_color, chat_input_font, chat_input_anchor);
+            apply_text_quake_colors(cursor_color, cursor_x + chat_input_x + x_offset_text_buffer, adjusted_y, chat_input_w, line_height, chat_input_color, chat_input_font, chat_input_anchor);
 
             if(show_chat_color_help) {
                 const char *color_codes = "1234567890\nqwertyuiop QWERTYUIOP\nasdfghjkl ASDFGHJKL\nzxcvbnm ZXCVBNM";
@@ -815,7 +815,7 @@ namespace Chimera {
                         auto emoji_name = chat_input_buffer.substr(start + 1, name_len);
                         try {
                             // get the emoji from the name (raises exception if not found)
-                            auto emoji = EMOJI_MAP.at(u16_to_u8(emoji_name));
+                            auto emoji = EMOJI_MAP.at(u16_to_u8(emoji_name.c_str()));
 
                             // found an emoji, insert it if there's enough space in the buffer
                             unsigned int emoji_len = emoji.length();
