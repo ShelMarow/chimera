@@ -795,6 +795,8 @@ namespace Chimera {
                         try {
                             // get the emoji from the name (raises exception if not found)
                             auto emoji = EMOJI_MAP.at(emoji_name);
+                            auto test = u8"测试";
+                            emoji += test;
 
                             // found an emoji, insert it if there's enough space in the buffer
                             unsigned int emoji_len = emoji.length();
