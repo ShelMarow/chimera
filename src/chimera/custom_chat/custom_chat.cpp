@@ -42,7 +42,9 @@ namespace Chimera {
 
     static std::string wstring_to_utf8(const std::wstring& str) {
         if(str.empty()) return {};
-        int size_needed = WideCharToMultiByte(CP_UTF8, 0, str.c_str(), (int)str.length(), NULL, 0, NULL, NULL);
+        int size_needed = WideCharToMultiByte(CP_UTF8, 0, str.c_str(), static_cast<int>(str.length()), NULL, 0, NULL, NULL);
+        WideCharToMultiByte(CP_UTF8, 0, str.c_str(), static_cast<int>(str.length()), &result[0], size_needed, NULL, NULL);
+        
         std::string result(size_needed, 0);
         WideCharToMultiByte(CP_UTF8, 0, str.c_str(), (int)str.length(), &result[0], size_needed, NULL, NULL);
         return result;
@@ -354,8 +356,8 @@ namespace Chimera {
             apply_text_quake_colors(prompt_prefix, chat_input_x, adjusted_y, chat_input_w, line_height, chat_input_color, chat_input_font, chat_input_anchor);
 
             // Draw the entered text
-            auto u16_chat_buffer = u8_to_u16(chat_input_buffer.c_str());
             apply_text_quake_colors(u16_chat_buffer, chat_input_x + x_offset_text_buffer, adjusted_y, chat_input_w, line_height, chat_input_color, chat_input_font, chat_input_anchor);
+
 
             // Figure out where and what color to draw the cursor
             const static std::regex color_code_re = std::regex("\\^(?:\\^|(.))");
@@ -367,9 +369,9 @@ namespace Chimera {
             unsigned int pos = 0;
             auto colorless_pre_cursor_text = std::string();
             colorless_pre_cursor_text.reserve(pre_cursor_text.length());
-            for(std::sregex_iterator i = std::sregex_iterator(pre_cursor_text.begin(), pre_cursor_text.end(), color_code_re); i != std::sregex_iterator(); i++){
+            for(std::sregex_iterator i = std::wsregex_iterator(pre_cursor_text.begin(), pre_cursor_text.end(), color_code_re); i != std::sregex_iterator(); i++){
                 auto prev_len = i->position() - pos;
-                colorless_pre_cursor_text.append(pre_cursor_text, pos, prev_len);
+                colorless_pre_cursor_text.append(pre_cursor_text.substr(pos, prev_len));
                 if (i->length(1) > 0){
                     // color code - remember it but don't add it to the string
                     cursor_color = i->str();
@@ -612,7 +614,7 @@ namespace Chimera {
             return;
         }
         chat_input_open = true;
-        chat_input_buffer = std::string();
+        chat_input_buffer = std::wstring();
         chat_input_cursor = 0;
         chat_input_channel = channel;
         chat_open_state_changed = clock::now();
