@@ -575,7 +575,7 @@ namespace Chimera {
         auto *name_color_to_use = color_id_for_player(player_index, &color_to_use);
 
         // Re-encode from UTF-16 to UTF-8, as wcrtomb is producing unreliable results
-        std::string message_u8 = try_fix_garbled_utf8(u16_to_u8(message));
+        std::string message_u8 = u16_to_u8(message);
 
         // Format a message
         char entire_message[MAX_MESSAGE_LENGTH];
