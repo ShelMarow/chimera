@@ -815,13 +815,13 @@ namespace Chimera {
                 utf8_input_fragment.push_back(static_cast<char>(character));
             
                 // 打印原始UTF-8字符（十六进制）
-                console_output("Raw UTF-8 byte (hex): 0x %s" ,character);
+                console_output(character);
             
                 // 尝试把缓存的UTF8片段转成宽字符
                 wchar_t wbuffer[2] = { 0 };
                 if (MultiByteToWideChar(CP_UTF8, 0, utf8_input_fragment.c_str(), -1, wbuffer, 2) > 0) {
                     // 打印转换后的宽字符（wchar_t）
-                    console_output("Converted wchar_t: %s" , wbuffer[0]);
+                    console_output(wbuffer[0]);
                     
                     // 成功解码，说明缓存够了
                     // emoji检测需要在成功组装出字符后再做
@@ -858,7 +858,7 @@ namespace Chimera {
                     // 清空fragment，表示已成功插入
                     utf8_input_fragment.clear();
                 } else {
-                    console_output("UTF-8 character still incomplete, waiting for more bytes...");
+                    
                 }
             }
         }                       
