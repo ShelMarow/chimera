@@ -40,14 +40,30 @@ namespace Chimera {
     static void check_for_quit_players();
     static void load_chat_settings();
 
-    static std::string wstring_to_utf8(const std::wstring& str) {
-        if (str.empty()) return {};
-        int size_needed = WideCharToMultiByte(CP_UTF8, 0, str.c_str(), static_cast<int>(str.length()), NULL, 0, NULL, NULL);
-        std::string result(size_needed, 0);
-        WideCharToMultiByte(CP_UTF8, 0, str.c_str(), static_cast<int>(str.length()), &result[0], size_needed, NULL, NULL);
-        return result;
+    // 检测拉丁乱码并尝试还原为中文
+    static std::string try_fix_garbled_utf8(const std::string& text) {
+        // 检查字符串中是否有大量连续的不可见字符或高位字符，初步判断是否是乱码
+        int suspicious_count = 0;
+        for (char c : text) {
+            if ((unsigned char)c >= 0xC0) { // 高位字符
+                suspicious_count++;
+            }
+        }
+        if (suspicious_count * 2 < (int)text.length()) {
+            // 如果高位字符数量不足一半，认为不是乱码
+            return text;
+        }
+    
+        // 尝试从本地系统默认编码转换回 UTF-8
+        wchar_t wbuffer[1024] = {};
+        MultiByteToWideChar(CP_ACP, 0, text.c_str(), -1, wbuffer, 1024);
+    
+        char utf8buffer[1024] = {};
+        WideCharToMultiByte(CP_UTF8, 0, wbuffer, -1, utf8buffer, 1024, nullptr, nullptr);
+    
+        return std::string(utf8buffer);
     }
-
+    
     static std::wstring u8_to_u16(const char *str) {
         wchar_t strw[1024] = {};
         if(MultiByteToWideChar(CP_UTF8, 0, str, -1, strw, sizeof(strw) / sizeof(*strw)) == 0) {
@@ -58,10 +74,6 @@ namespace Chimera {
         }
     }
 
-    static std::wstring u8_to_u16(const std::wstring& str) {
-        return str;  // 直接返回，不需要转换
-    }
-    
     static std::string u16_to_u8(const wchar_t *strw) {
         char str[1024] = {};
         if(WideCharToMultiByte(CP_UTF8, 0, strw, -1, str, sizeof(str) / sizeof(*str), nullptr, nullptr) == 0) {
@@ -225,7 +237,7 @@ namespace Chimera {
     static bool block_ips = false;
 
     #define INPUT_BUFFER_SIZE 64
-    static std::wstring chat_input_buffer;
+    static std::string chat_input_buffer;
     static std::size_t chat_input_cursor = 0;
     static int chat_input_channel = 0;
     static bool chat_input_open = false;
@@ -358,30 +370,29 @@ namespace Chimera {
             apply_text_quake_colors(prompt_prefix, chat_input_x, adjusted_y, chat_input_w, line_height, chat_input_color, chat_input_font, chat_input_anchor);
 
             // Draw the entered text
-            //auto u16_chat_buffer = u8_to_u16(chat_input_buffer.c_str());
-            apply_text_quake_colors(chat_input_buffer, chat_input_x + x_offset_text_buffer, adjusted_y, chat_input_w, line_height, chat_input_color, chat_input_font, chat_input_anchor);
-
+            auto u16_chat_buffer = u8_to_u16(chat_input_buffer.c_str());
+            apply_text_quake_colors(u16_chat_buffer, chat_input_x + x_offset_text_buffer, adjusted_y, chat_input_w, line_height, chat_input_color, chat_input_font, chat_input_anchor);
 
             // Figure out where and what color to draw the cursor
-            const static std::wregex color_code_re(L"\\^(?:\\^|(.))");
+            const static std::regex color_code_re = std::regex("\\^(?:\\^|(.))");
             auto pre_cursor_text = chat_input_buffer.substr(0, chat_input_cursor);
 
             // Strip all color codes from text (saving the last-encountered one to use to render the
             // cursor with) in order to get an accurate length of the text before the cursor.
             std::string cursor_color = "^;";
             unsigned int pos = 0;
-            auto colorless_pre_cursor_text = std::wstring();
+            auto colorless_pre_cursor_text = std::string();
             colorless_pre_cursor_text.reserve(pre_cursor_text.length());
-            for(std::wsregex_iterator i = std::wsregex_iterator(pre_cursor_text.begin(), pre_cursor_text.end(), color_code_re); i != std::wsregex_iterator(); i++){
+            for(std::sregex_iterator i = std::sregex_iterator(pre_cursor_text.begin(), pre_cursor_text.end(), color_code_re); i != std::sregex_iterator(); i++){
                 auto prev_len = i->position() - pos;
                 colorless_pre_cursor_text.append(pre_cursor_text, pos, prev_len);
                 if (i->length(1) > 0){
                     // color code - remember it but don't add it to the string
-                    cursor_color = wstring_to_utf8(i->str());
+                    cursor_color = i->str();
                 }
                 else{
                     // matched a "^^" - add a literal "^"
-                    colorless_pre_cursor_text.append(L"^");
+                    colorless_pre_cursor_text.append("^");
                 }
                 pos += prev_len + i->length();
             }
@@ -565,7 +576,7 @@ namespace Chimera {
         auto *name_color_to_use = color_id_for_player(player_index, &color_to_use);
 
         // Re-encode from UTF-16 to UTF-8, as wcrtomb is producing unreliable results
-        std::string message_u8 = u16_to_u8(message);
+        std::string message_u8 = try_fix_garbled_utf8(u16_to_u8(message));
 
         // Format a message
         char entire_message[MAX_MESSAGE_LENGTH];
@@ -617,7 +628,7 @@ namespace Chimera {
             return;
         }
         chat_input_open = true;
-        chat_input_buffer = std::wstring();
+        chat_input_buffer = std::string();
         chat_input_cursor = 0;
         chat_input_channel = channel;
         chat_open_state_changed = clock::now();
@@ -694,70 +705,100 @@ namespace Chimera {
             std::uint8_t modifier; // 0001=shift 0010=ctrl 0100=alt
             std::uint8_t character;
             std::uint8_t key_code;
-            std::uint8_t unknown;
-        }; static_assert(sizeof(key_input) == sizeof(std::uint32_t)); // 保证结构体大小正确
-    
-        static key_input    *input_buffer = nullptr;
-        static std::int16_t *input_count = nullptr;
+            std::uint8_t unknown; // definitely set to different values but meaning is unclear
+        }; static_assert(sizeof(key_input) == sizeof(std::uint32_t)); // 4-byte strides
+
+        static key_input    *input_buffer = nullptr; // array of size 0x40
+        static std::int16_t *input_count = nullptr;  // population count for input_buffer
         if(!input_buffer) {
             auto *data = *reinterpret_cast<std::uint8_t **>(get_chimera().get_signature("on_key_press_sig").data() + 10);
             input_buffer = reinterpret_cast<key_input*>(data + 2);
             input_count = reinterpret_cast<std::int16_t*>(data);
         }
+
+        // Handle keyboard input if we have the chat input open
         if(chat_input_open) {
             const auto& [modifier, character, key_code, input_unknown] = input_buffer[*input_count];
-            auto num_chars = chat_input_buffer.length();
-    
-            if(character == 0xFF) { // 处理特殊按键
-                bool ctrl = modifier & 0b0000010;
-    
-                if(key_code == 0) { // ESC 退出聊天
+            auto num_bytes = chat_input_buffer.length();
+
+            // Special key pressed
+            if(character == 0xFF) {
+                bool ctrl  = modifier & 0b0000010;
+                auto char_starts = get_char_start_idxs(num_bytes);
+
+                if(key_code == 0) {
                     chat_input_open = false;
                     chat_open_state_changed = clock::now();
                     chat_message_scroll = 0;
                     enable_input(true);
                 }
-                else if(key_code == 0x4D || key_code == 0x53) { // Up / PageUp
+                // Up arrow / Page up
+                else if(key_code == 0x4D || key_code == 0x53) {
                     if(chat_message_scroll + 1 != MESSAGE_BUFFER_SIZE && chat_messages[chat_message_scroll + 1].valid()) {
                         chat_message_scroll++;
                     }
                 }
-                else if(key_code == 0x4E || key_code == 0x56) { // Down / PageDown
+                // Down arrow / Page down
+                else if(key_code == 0x4E || key_code == 0x56) {
                     if(chat_message_scroll > 0) {
                         chat_message_scroll--;
                     }
                 }
-                else if(key_code == 0x52) { // Home
+                // Home
+                else if(key_code == 0x52){
                     chat_input_cursor = 0;
                 }
-                else if(key_code == 0x55) { // End
-                    chat_input_cursor = num_chars;
+                // End
+                else if(key_code == 0x55){
+                    chat_input_cursor = num_bytes;
                 }
-                else if(key_code == 0x4F) { // Left Arrow
-                    if(chat_input_cursor > 0) {
-                        chat_input_cursor--;
+                // Left arrow
+                else if(key_code == 0x4F) {
+                    if (ctrl){
+                        // Ctrl + Left: move to start of previous word
+                        while (chat_input_cursor > 0 && chat_input_buffer[chat_input_cursor-1] == ' '){
+                            chat_input_cursor = next_cursor_pos(char_starts, -1);
+                        }
+                        if (chat_input_cursor > 0){
+                            auto new_pos = chat_input_buffer.rfind(' ', chat_input_cursor-1);
+                            chat_input_cursor = new_pos != std::string::npos ? new_pos + 1 : 0;
+                        }
+                    }
+                    else{
+                        chat_input_cursor = next_cursor_pos(char_starts, -1);
                     }
                 }
-                else if(key_code == 0x50) { // Right Arrow
-                    if(chat_input_cursor < num_chars) {
-                        chat_input_cursor++;
+                // Right arrow
+                else if(key_code == 0x50) {
+                    if (ctrl){
+                        // Ctrl + Right: move to start of next word
+                        if (chat_input_cursor < num_bytes){
+                            auto new_pos = chat_input_buffer.find(' ', chat_input_cursor);
+                            chat_input_cursor = new_pos != std::string::npos ? new_pos + 1 : num_bytes;
+                        }
+                        while (chat_input_cursor < num_bytes && chat_input_buffer[chat_input_cursor] == ' '){
+                            chat_input_cursor = next_cursor_pos(char_starts, 1);
+                        }
+                    }
+                    else{
+                        chat_input_cursor = next_cursor_pos(char_starts, 1);
                     }
                 }
-                else if(key_code == 0x1D) { // Backspace
-                    if(chat_input_cursor > 0) {
-                        chat_input_buffer.erase(chat_input_buffer.begin() + (chat_input_cursor - 1));
-                        chat_input_cursor--;
-                    }
+                // Backspace
+                else if(key_code == 0x1D) {
+                    auto new_pos = next_cursor_pos(char_starts, -1);
+                    chat_input_buffer.erase(new_pos, chat_input_cursor - new_pos);
+                    chat_input_cursor = new_pos;
                 }
-                else if(key_code == 0x54) { // Delete
-                    if(chat_input_cursor < chat_input_buffer.length()) {
-                        chat_input_buffer.erase(chat_input_buffer.begin() + chat_input_cursor);
-                    }
+                // Delete
+                else if(key_code == 0x54) {
+                    auto next_pos = next_cursor_pos(char_starts, 1);
+                    chat_input_buffer.erase(chat_input_cursor, next_pos - chat_input_cursor);
                 }
-                else if(key_code == 0x38) { // Enter
-                    if(num_chars > 0 && server_type() != ServerType::SERVER_NONE) {
-                        auto utf8_message = wstring_to_utf8(chat_input_buffer);
-                        chat_out(chat_input_channel, utf8_message.c_str());
+                // Enter
+                else if(key_code == 0x38) {
+                    if(num_bytes > 0 && server_type() != ServerType::SERVER_NONE){
+                        chat_out(chat_input_channel, chat_input_buffer.c_str());
                     }
                     chat_input_open = false;
                     chat_open_state_changed = clock::now();
@@ -765,9 +806,53 @@ namespace Chimera {
                     enable_input(true);
                 }
             }
-            else if (!std::iscntrl(character) && num_chars < INPUT_BUFFER_SIZE - 1) { // 正常字符输入
-                chat_input_buffer.insert(chat_input_buffer.begin() + chat_input_cursor, static_cast<wchar_t>(character));
-                chat_input_cursor++;
+            // typed a non-control character and there's room left in the buffer
+            else if (!std::iscntrl(character) && num_bytes < INPUT_BUFFER_SIZE - 1) {
+                bool inserted_emoji = false;
+
+                // check for possible emoji replacement when typing ':'
+                if (chat_input_cursor >= 2 && character == ':'){
+                    auto start = chat_input_buffer.rfind(':', chat_input_cursor - 1);
+                    if (start != std::string::npos && chat_input_cursor - start > 1) {
+                        unsigned int name_len = chat_input_cursor - start - 1;
+                        auto emoji_name = chat_input_buffer.substr(start + 1, name_len);
+                        try {
+                            // get the emoji from the name (raises exception if not found)
+                            auto emoji = EMOJI_MAP.at(emoji_name);
+
+                            // found an emoji, insert it if there's enough space in the buffer
+                            unsigned int emoji_len = emoji.length();
+                            int added_bytes = emoji_len - (name_len + 1);
+                            if (num_bytes + added_bytes < INPUT_BUFFER_SIZE){
+                                chat_input_buffer.erase(start, name_len + 1);
+                                chat_input_buffer.insert(start, emoji);
+                                chat_input_cursor += added_bytes;
+                                inserted_emoji = true;
+                            }
+                        }
+                        catch (const std::out_of_range& oor) {
+                            // no match, insert the character normally
+                        }
+                    }
+                }
+                if (!inserted_emoji) {
+                    // Insert the character normally
+                    if(character >= 0x80) {
+                        // Not enough space
+                        if(num_bytes >= INPUT_BUFFER_SIZE - 2) {
+                            return;
+                        }
+
+                        // Needs to be converted to UTF-8
+                        chat_input_buffer.insert(chat_input_cursor++, 1, 0xC2 + (character > 0xBF ? 1 : 0));
+                        chat_input_buffer.insert(chat_input_cursor++, 1, 0x80 + (character & 0x3F));
+                    }
+                    else {
+                        // Can be used as-is
+                        chat_input_buffer.insert(chat_input_cursor++, 1, character);
+                    }
+
+                }
             }
         }
     }
