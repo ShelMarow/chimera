@@ -677,25 +677,47 @@ namespace Chimera {
     }
 
     static void on_chat_input() noexcept {
-        struct key_input {
-            std::uint8_t modifier; // 0001=shift 0010=ctrl 0100=alt
-            std::uint8_t character;
-            std::uint8_t key_code;
-            std::uint8_t unknown; // definitely set to different values but meaning is unclear
-        }; static_assert(sizeof(key_input) == sizeof(std::uint32_t)); // 4-byte strides
+    struct key_input {
+        std::uint8_t modifier;
+        std::uint8_t character;
+        std::uint8_t key_code;
+        std::uint8_t unknown;
+    };
 
-        static key_input    *input_buffer = nullptr; // array of size 0x40
-        static std::int16_t *input_count = nullptr;  // population count for input_buffer
-        if(!input_buffer) {
-            auto *data = *reinterpret_cast<std::uint8_t **>(get_chimera().get_signature("on_key_press_sig").data() + 10);
-            input_buffer = reinterpret_cast<key_input*>(data + 2);
-            input_count = reinterpret_cast<std::int16_t*>(data);
+    static key_input *input_buffer = nullptr;
+    static std::int16_t *input_count = nullptr;
+    
+    if(!input_buffer) {
+        auto *data = *reinterpret_cast<std::uint8_t **>(get_chimera().get_signature("on_key_press_sig").data() + 10);
+        input_buffer = reinterpret_cast<key_input*>(data + 2);
+        input_count = reinterpret_cast<std::int16_t*>(data);
+    }
+
+    if(chat_input_open) {
+        const auto& [modifier, character, key_code, input_unknown] = input_buffer[*input_count];
+        auto num_bytes = chat_input_buffer.length();
+
+        // 处理IME输入（中文等）
+        if(character == 0xFF && key_code == 0) {
+            // 这是IME产生的字符
+            HIMC himc = ImmGetContext(GetActiveWindow());
+            if(himc) {
+                DWORD size = ImmGetCompositionStringW(himc, GCS_RESULTSTR, NULL, 0);
+                if(size > 0) {
+                    std::wstring wstr(size / sizeof(wchar_t), L'\0');
+                    ImmGetCompositionStringW(himc, GCS_RESULTSTR, &wstr[0], size);
+                    
+                    // 转换为UTF-8并插入缓冲区
+                    std::string utf8 = u16_to_u8(wstr.c_str());
+                    if(num_bytes + utf8.length() < INPUT_BUFFER_SIZE) {
+                        chat_input_buffer.insert(chat_input_cursor, utf8);
+                        chat_input_cursor += utf8.length();
+                    }
+                }
+                ImmReleaseContext(GetActiveWindow(), himc);
+            }
+            return;
         }
-
-        // Handle keyboard input if we have the chat input open
-        if(chat_input_open) {
-            const auto& [modifier, character, key_code, input_unknown] = input_buffer[*input_count];
-            auto num_bytes = chat_input_buffer.length();
 
             // Special key pressed
             if(character == 0xFF) {
