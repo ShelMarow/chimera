@@ -356,11 +356,12 @@ namespace Chimera {
             apply_text_quake_colors(prompt_prefix, chat_input_x, adjusted_y, chat_input_w, line_height, chat_input_color, chat_input_font, chat_input_anchor);
 
             // Draw the entered text
-            apply_text_quake_colors(u16_chat_buffer, chat_input_x + x_offset_text_buffer, adjusted_y, chat_input_w, line_height, chat_input_color, chat_input_font, chat_input_anchor);
+            auto u16_chat_buffer = u8_to_u16(chat_input_buffer.c_str());
+            apply_text_quake_colors(chat_input_buffer, chat_input_x + x_offset_text_buffer, adjusted_y, chat_input_w, line_height, chat_input_color, chat_input_font, chat_input_anchor);
 
 
             // Figure out where and what color to draw the cursor
-            const static std::regex color_code_re = std::regex("\\^(?:\\^|(.))");
+            const static std::wregex color_code_re = std::wregex("\\^(?:\\^|(.))");
             auto pre_cursor_text = chat_input_buffer.substr(0, chat_input_cursor);
 
             // Strip all color codes from text (saving the last-encountered one to use to render the
@@ -369,9 +370,9 @@ namespace Chimera {
             unsigned int pos = 0;
             auto colorless_pre_cursor_text = std::string();
             colorless_pre_cursor_text.reserve(pre_cursor_text.length());
-            for(std::sregex_iterator i = std::wsregex_iterator(pre_cursor_text.begin(), pre_cursor_text.end(), color_code_re); i != std::sregex_iterator(); i++){
+            for(std::wsregex_iterator i = std::wsregex_iterator(pre_cursor_text.begin(), pre_cursor_text.end(), color_code_re); i != std::wsregex_iterator(); i++){
                 auto prev_len = i->position() - pos;
-                colorless_pre_cursor_text.append(pre_cursor_text.substr(pos, prev_len));
+                colorless_pre_cursor_text.append(pre_cursor_text, pos, prev_len);
                 if (i->length(1) > 0){
                     // color code - remember it but don't add it to the string
                     cursor_color = i->str();
@@ -491,7 +492,7 @@ namespace Chimera {
         if(block_ips && length > 6) {
 			// initialize once
             const static std::wregex r(L"\\b(\\d{1,3}\\.){3}\\d{1,3}\\b");
-            message_filtered = std::regex_replace(message, r, L"#.#.#.#");
+            message_filtered = std::wregex_replace(message, r, L"#.#.#.#");
             message = message_filtered.c_str();
             length = lstrlenW(message);
         }
@@ -614,7 +615,7 @@ namespace Chimera {
             return;
         }
         chat_input_open = true;
-        chat_input_buffer = std::wstring();
+        chat_input_buffer = std::string();
         chat_input_cursor = 0;
         chat_input_channel = channel;
         chat_open_state_changed = clock::now();
